@@ -15,10 +15,8 @@ checkpoint_path = "/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/mamba_finetune_res
 config_path = "/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/checkpoints/checkpoint-3236/config.json"
 
 config = MambaConfig.from_pretrained(config_path)
-# tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-# model = MambaForCausalLM.from_pretrained(checkpoint_path, config=config)
-tokenizer = AutoTokenizer.from_pretrained("state-spaces/mamba-130m-hf")
-model = MambaForCausalLM.from_pretrained("state-spaces/mamba-130m-hf")
+tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+model = MambaForCausalLM.from_pretrained(checkpoint_path, config=config)
 
 dataset_dir = '/scratch/vetgpt/repo/MedVetGPT/qa_generate/0508_short2_nodigit/'
 
