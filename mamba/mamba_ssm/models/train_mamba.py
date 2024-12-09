@@ -289,20 +289,20 @@ deepspeed = {
     "optimizer": {
         "type": "AdamW",
         "params": {
-            "lr": "auto",
-            "betas": "auto",
-            "eps": "auto",
-            "weight_decay": "auto"
+            "lr": 1e-4,
+            "betas": [0.9, 0.999],
+            "eps": 1e-8,
+            "weight_decay": 0.01
         }
     },
 
     "scheduler": {
         "type": "WarmupDecayLR",
         "params": {
-            "warmup_min_lr": "auto",
-            "warmup_max_lr": "auto",
-            "warmup_num_steps": "auto",
-            "total_num_steps": "auto",
+            "warmup_min_lr": 0.0,
+            "warmup_max_lr": 1e-4,
+            "warmup_num_steps": 10000,
+            "total_num_steps": 500000,
         }
     },
 
@@ -327,33 +327,33 @@ deepspeed = {
         "stage3_gather_16bit_weights_on_model_save": True
     },
 
-    "gradient_accumulation_steps": "auto",
-    "gradient_clipping": "auto",
+    "gradient_accumulation_steps": 1,
+    "gradient_clipping": 1.0,
     "steps_per_print": 2000,
-    "train_batch_size": "auto",
-    "train_micro_batch_size_per_gpu": "auto",
+    "train_batch_size": 1024, # Batch size
+    "train_micro_batch_size_per_gpu": 256, # Batch size per GPU (4 GPUs)
     "wall_clock_breakdown": False
 }
 output_dir = "/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/checkpoints"
 
 training_args = TrainingArguments(
     output_dir,
-    per_device_train_batch_size=2,
+    per_device_train_batch_size=1024,
     gradient_accumulation_steps=1,
     logging_steps=1,
     save_strategy='steps',
-    save_steps=5,
-    num_train_epochs=25,
+    save_steps=5000,
+    num_train_epochs=None,
     learning_rate=1e-4,
-    weight_decay=0,
-    warmup_steps=1000,
+    weight_decay=0.01,
+    warmup_steps=10000,
     bf16=True,
     fp16=False,
-    gradient_checkpointing=False,
+    gradient_checkpointing=True,
     deepspeed=deepspeed,
     save_total_limit=5,
     log_level='debug',
-    max_steps=100,
+    max_steps=500000,
     save_safetensors=True
 )
 
