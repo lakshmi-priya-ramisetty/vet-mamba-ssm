@@ -249,7 +249,7 @@ class MambaLMHeadModel(PreTrainedModel, GenerationMixin):
         model.load_state_dict(load_state_dict_hf(pretrained_model_name, device=device, dtype=dtype))
         return model
 
-train_dataset = load_dataset("/scratch/vetgpt/data/processed_data/redpajama_15_20_25_30_text/**/*.txt")
+train_dataset = load_dataset("/scratch/vetgpt/data/processed_data/*/**/*.txt")
 
     
 config = MambaConfig(
