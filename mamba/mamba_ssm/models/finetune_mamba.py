@@ -1,161 +1,67 @@
-import time
-import torch, os
-from transformers import AutoTokenizer, TrainingArguments, Trainer
-from accelerate import Accelerator
-from datasets import load_dataset, DatasetDict, Dataset, Features, Value
-from mamba_ssm.models.mixer_seq_simple import MambaLMHeadModel
+import json
+from datasets import Dataset, DatasetDict
+from sklearn.model_selection import train_test_split
+from trl import SFTTrainer
+from peft import LoraConfig
+from transformers import MambaConfig, MambaForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
 
-accelerator = Accelerator()
+with open("/scratch/vetgpt/vetgpt-rlp/mamba/qa-pairs/train.json") as f:
+    data = json.load(f)
 
-modelpath = "state-spaces/mamba-1.4b"
-bs = 4        
-ga_steps = 1  
-epochs = 25
-lr = 0.00005
-output_dir = "/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/retrain_checkpoints"
+def convert_to_hf_dataset(data):
+    qa_pairs = [{"text": f"Question: {item['Question']} Answer: {item['Answer']}"} for item in data]
+    return Dataset.from_list(qa_pairs)
 
-# Forward pass with custom loss
-def forward_with_loss(self, input_ids, position_ids=None, inference_params=None, num_last_tokens=0, labels=None):
-    input_ids = input_ids.long()
-    hidden_states = self.backbone(input_ids, inference_params=inference_params)
-    if num_last_tokens > 0:
-        hidden_states = hidden_states[:, -num_last_tokens:]
-    lm_logits = self.lm_head(hidden_states)
-    
-    from torch.nn import CrossEntropyLoss
-    if labels is not None:
-        logits = lm_logits
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        loss_fct = CrossEntropyLoss()
-        shift_logits = shift_logits.view(-1, self.backbone.embedding.weight.size()[0])
-        shift_labels = shift_labels.view(-1)
-        shift_labels = shift_labels.to(shift_logits.device)
-        loss = loss_fct(shift_logits, shift_labels)
-        return (loss,)   
-    else:
-        CausalLMOutput = namedtuple("CausalLMOutput", ["logits"])
-        return CausalLMOutput(logits=lm_logits)
+hf_dataset = convert_to_hf_dataset(data)
 
-MambaLMHeadModel.forward = forward_with_loss
+train_test_split = hf_dataset.train_test_split(test_size=0.1, seed=42)
+train_dataset = train_test_split["train"]
+test_dataset = train_test_split["test"]
 
-# Load model and tokenizer
-model = MambaLMHeadModel.from_pretrained(
-    modelpath,    
-    dtype=torch.bfloat16,
-    device="cuda",
-)
+checkpoint_path_model = '/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/retrain_checkpoints/checkpoint-517075'
+config_path = "/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/checkpoints/checkpoint-3236/config.json"
 
-tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b") 
-tokenizer.pad_token = tokenizer.eos_token
+config = MambaConfig.from_pretrained(config_path)
+tokenizer = AutoTokenizer.from_pretrained(checkpoint_path_model)
+model = MambaForCausalLM.from_pretrained(checkpoint_path_model, config=config, ignore_mismatched_sizes=True)
 
-# Resize tokenizer embeddings
-def resize_token_embeddings(model, new_num_tokens):
-    import torch.nn as nn
-
-    old_embeddings = model.backbone.embedding
-    old_num_tokens, old_embedding_dim = old_embeddings.weight.size()
-    new_embeddings = nn.Embedding(
-        new_num_tokens,
-        old_embedding_dim,
-        device=old_embeddings.weight.device,
-        dtype=old_embeddings.weight.dtype,
-    )
-    nn.init.normal_(new_embeddings.weight, std=0.02)
-    n = min(old_num_tokens, new_num_tokens)
-    new_embeddings.weight.data[:n, :] = old_embeddings.weight.data[:n, :]
-    model.backbone.embedding = new_embeddings
-    model.tie_weights()
-
-tokenizer.add_tokens(["<PAD>", "<|im_start|>"])
-tokenizer.add_special_tokens(dict(eos_token="<|im_end|>"))
-tokenizer.pad_token = "<PAD>"
-tokenizer.eos_token = "<|im_end|>"
-resize_token_embeddings(model, len(tokenizer))
-
-tokenizer.save_pretrained(f"{output_dir}/tokenizer/")
-
-# Load and preprocess dataset
-data_files = {"train": "/scratch/vetgpt/data/processed_data/redpajama_15_20_25_30_text/**/*.txt"} 
-features = Features({"text": Value("string")})
-dataset = load_dataset("text", data_files=data_files, features=features)
-
-def tokenize(element):
-    return tokenizer(
-        element["text"],
-        truncation=True,
-        max_length=1024,
-        add_special_tokens=False,
-    )
-
-dataset_tokenized = dataset.map(
-    tokenize, 
-    batched=True, 
-    num_proc=os.cpu_count(),    
-    remove_columns=["text"]
-).filter(lambda x: len(x["input_ids"]) > 0)
-
-def collate(elements):
-    tokenlist = [e["input_ids"] for e in elements if len(e["input_ids"]) > 0] 
-    tokens_maxlen = max([len(t) for t in tokenlist])
-
-    input_ids, labels = [], []
-    for tokens in tokenlist:
-        pad_len = tokens_maxlen - len(tokens)
-        input_ids.append(tokens + [tokenizer.pad_token_id] * pad_len)
-        labels.append(tokens + [-100] * pad_len)
-
-    batch = {
-        "input_ids": torch.tensor(input_ids, dtype=torch.long),
-        "labels": torch.tensor(labels, dtype=torch.long),
-    }
-    return batch
-
-# Define run name and set checkpoint timing
-run_name = "{model}_{ds}_BS-{bs}_LR-{lr}".format(
-    model=modelpath.split("/")[1],
-    ds="processed_data",
-    bs=bs,
-    lr=lr,
-)
-run_name += "-ChatML"
-
-# Calculate steps per 3-4 hours dynamically
-steps_per_epoch = len(dataset_tokenized["train"]) // (accelerator.state.num_processes * bs * ga_steps)
-approx_steps_per_hour = steps_per_epoch // 4
-save_steps_interval = 3 * approx_steps_per_hour
-
-args = TrainingArguments(
-    output_dir=output_dir,
-    per_device_train_batch_size=bs,
-    per_device_eval_batch_size=bs,
-    evaluation_strategy="no",
+training_args = TrainingArguments(
+    output_dir="/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/mamba_finetune_new_qa_pairs_1.4b",
+    num_train_epochs=3,
+    per_device_train_batch_size=8,
+    logging_dir='./logs',
     logging_steps=10,
-    save_steps=save_steps_interval,
-    gradient_accumulation_steps=ga_steps,
-    num_train_epochs=epochs,
-    lr_scheduler_type="constant",
-    learning_rate=lr,
-    group_by_length=True,
-    bf16=True,
-    ddp_find_unused_parameters=False,
-    save_safetensors=False,
-    run_name=run_name,
+    save_strategy="epoch",
+    save_total_limit=3,
+    evaluation_strategy="epoch", 
+    learning_rate=2e-3,
+    save_steps=100,
+    load_best_model_at_end=True, 
+    metric_for_best_model="eval_loss", 
+    overwrite_output_dir=True,
 )
 
-# Assign configuration for the Trainer
-model.config = model.config if hasattr(model.config, "to_dict") else model.config.__dict__
+lora_config = LoraConfig(
+    r=8,
+    target_modules=["x_proj", "embeddings", "in_proj", "out_proj"],
+    task_type="CAUSAL_LM",
+    bias="none"
+)
 
-trainer = Trainer(
+trainer = SFTTrainer(
     model=model,
     tokenizer=tokenizer,
-    args=args,
-    data_collator=collate,
-    train_dataset=dataset_tokenized["train"],
+    args=training_args,
+    peft_config=lora_config,
+    train_dataset=train_dataset,
+    eval_dataset=test_dataset,
+    dataset_text_field="text",
 )
 
 trainer.train()
 
+trainer.save_model("/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/mamba_finetune_new_qa_pairs_1.4b/final_model")
+tokenizer.save_pretrained("/scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/mamba_finetune_new_qa_pairs_1.4b/final_model")
 
-
-# CUDA_VISIBLE_DEVICES=2,3,5,7 python /scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/models/finetune_mamba.py
+# CUDA_VISIBLE_DEVICES=3,5 python /scratch/vetgpt/vetgpt-rlp/mamba/mamba_ssm/models/finetune_new_qa_pairs_mamba.py

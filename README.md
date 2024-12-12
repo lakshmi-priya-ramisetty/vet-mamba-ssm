@@ -74,56 +74,33 @@ Refer to the [Mamba repository](https://github.com/state-spaces/mamba) for furth
 To work with the `Vet-Mamba-SSM` project, you will primarily use two scripts:
 
 1. **Model Training**: Use `train_mamba.py` to train the Mamba model from scratch on your veterinary dataset.
-2. **Fine-Tuning for Question-Answering**: Use `mamba_finetune_results.py` to fine-tune the trained model on question-answering (QA) pairs.
+2. **Fine-Tuning for Question-Answering**: Use `finetune_mamba.py` to fine-tune the trained model on question-answering (QA) pairs.
 
 ### 1. Model Training
 
-The `train_mamba.py` script is used to initialize and train the Mamba model on a veterinary-specific dataset. To start training, navigate to the `mamba_ssm/models` directory and run:
+The `train.py` script is used to initialize and train the Mamba model on a veterinary-specific dataset. To start training, navigate to the `mamba_ssm/models` directory and run:
 
 ```bash
-python mamba_ssm/models/train_mamba.py
+python mamba_ssm/models/train.py
 ```
 
 ### 2. Fine-Tuning for Question-Answering (QA)
 
-After training the model, use `mamba_finetune_results.py` to fine-tune it on QA pairs to improve its performance in question-answering tasks. This step ensures the model can handle specific veterinary queries accurately.
+After training the model, use `finetune_mamba.py` to fine-tune it on QA pairs to improve its performance in question-answering tasks. This step ensures the model can handle specific veterinary queries accurately.
 
 ```bash
-python mamba_finetune_results.py 
+python mamba_ssm/models/finetune_mamba.py 
 ```
 
-### 3. MambaLMHeadModel Configuration
+### 3. VetMamba Configuration
 
-The `MambaLMHeadModel` configuration used in this project is designed to handle large vocabulary sizes and dense layers suitable for long-sequence modeling. Here’s an overview of its architecture:
+The configuration used in this project is designed to handle large vocabulary sizes and dense layers suitable for long-sequence modeling.
 
-```python
-MambaLMHeadModel(
-  (backbone): MixerModel(
-    (embedding): Embedding(32000, 2048)
-    (layers): ModuleList(
-      (0-47): 48 x Block(
-        (mixer): Mamba(
-          (in_proj): Linear(in_features=2048, out_features=8192, bias=False)
-          (conv1d): Conv1d(4096, 4096, kernel_size=(4,), stride=(1,), padding=(3,), groups=4096)
-          (act): SiLU()
-          (x_proj): Linear(in_features=4096, out_features=160, bias=False)
-          (dt_proj): Linear(in_features=128, out_features=4096, bias=True)
-          (out_proj): Linear(in_features=4096, out_features=2048, bias=False)
-        )
-        (norm): LayerNorm((2048,), eps=1e-05, elementwise_affine=True)
-      )
-    )
-    (norm_f): LayerNorm((2048,), eps=1e-05, elementwise_affine=True)
-  )
-  (lm_head): Linear(in_features=2048, out_features=32000, bias=False)
-)
-```
-
-- **Backbone (MixerModel)**: The backbone contains an embedding layer for token representations and a stack of 48 `Block` layers.
+- **Backbone (MixerModel)**: The backbone contains an embedding layer for token representations and a stack of 48 `Mamba Block` layers.
   - **Mixer (Mamba)**: Each `Block` includes a `Mamba` mixer with multiple linear projections and a `Conv1D` layer, designed for efficient processing of sequential data.
-  - **Normalization (LayerNorm)**: Each block and the final layer include layer normalization for stable training.
+  - **Normalization (MambaRMSNorm)**: Each block and the final layer include normalization for stable training.
 
-- **Language Model Head (`lm_head`)**: A linear layer that maps the 2048-dimensional hidden state to the 32,000-dimensional vocabulary space, enabling token prediction.
+- **Language Model Head (`lm_head`)**: A linear layer that maps the 2048-dimensional hidden state to the 50,280-dimensional vocabulary space, enabling token prediction.
 
 This configuration allows the Mamba model to efficiently handle long veterinary-related sequences, making it suitable for specialized tasks in the veterinary domain.
 
@@ -133,66 +110,71 @@ The project uses DeepSpeed for optimized training, including mixed precision and
 
 ```json
 deepspeed = {
-    "comms_logger": {
-        "enabled": True,
-        "debug": True
-    },
-    "fp16": {
-        "enabled": "auto",
-        "loss_scale": 0,
-        "loss_scale_window": 1000,
-        "initial_scale_power": 16,
-        "hysteresis": 2,
-        "min_loss_scale": 1
-    },
-    "bf16": {
-        "enabled": "auto"
-    },
-    "optimizer": {
-        "type": "AdamW",
-        "params": {
-            "lr": "auto",
-            "betas": "auto",
-            "eps": "auto",
-            "weight_decay": "auto"
-        }
-    },
-    "scheduler": {
-        "type": "WarmupDecayLR",
-        "params": {
-            "warmup_min_lr": "auto",
-            "warmup_max_lr": "auto",
-            "warmup_num_steps": "auto",
-            "total_num_steps": "auto",
-        }
-    },
-    "zero_optimization": {
-        "stage": 3,
-        "offload_optimizer": {
-            "device": "cpu",
-            "pin_memory": True
-        },
-        "offload_param": {
-            "device": "cpu",
-            "pin_memory": True
-        },
-        "overlap_comm": True,
-        "contiguous_gradients": True,
-        "sub_group_size": 1e8,
-        "reduce_bucket_size": "auto",
-        "stage3_prefetch_bucket_size": "auto",
-        "stage3_param_persistence_threshold": "auto",
-        "stage3_max_live_parameters": 1e8,
-        "stage3_max_reuse_distance": 1e8,
-        "stage3_gather_16bit_weights_on_model_save": True
-    },
-    "gradient_accumulation_steps": "auto",
-    "gradient_clipping": "auto",
-    "steps_per_print": 2000,
-    "train_batch_size": "auto",
-    "train_micro_batch_size_per_gpu": "auto",
-    "wall_clock_breakdown": False
-}
+      "comms_logger": {
+          "enabled": True,
+          "debug": True
+      },
+      "fp16": {
+          "enabled": "auto",
+          "loss_scale": 0,
+          "loss_scale_window": 1000,
+          "initial_scale_power": 16,
+          "hysteresis": 2,
+          "min_loss_scale": 1
+      },
+
+      "bf16": {
+          "enabled": "auto"
+      },
+
+      "optimizer": {
+          "type": "AdamW",
+          "params": {
+              "lr": 1e-4,
+              "betas": [0.9, 0.999],
+              "eps": 1e-8,
+              "weight_decay": 0.01
+          }
+      },
+
+      "scheduler": {
+          "type": "WarmupDecayLR",
+          "params": {
+              "warmup_min_lr": 0.0,
+              "warmup_max_lr": 1e-4,
+              "warmup_num_steps": 10000,
+              "total_num_steps": 500000,
+          }
+      },
+
+      "zero_optimization": {
+          "stage": 3,
+          "offload_optimizer": {
+              "device": "cpu",
+              "pin_memory": True
+          },
+          "offload_param": {
+              "device": "cpu",
+              "pin_memory": True
+          },
+          "overlap_comm": True,
+          "contiguous_gradients": True,
+          "sub_group_size": 1e8,
+          "reduce_bucket_size": "auto",
+          "stage3_prefetch_bucket_size": "auto",
+          "stage3_param_persistence_threshold": "auto",
+          "stage3_max_live_parameters": 1e8,
+          "stage3_max_reuse_distance": 1e8,
+          "stage3_gather_16bit_weights_on_model_save": True
+      },
+
+      "gradient_accumulation_steps": 1,
+      "gradient_clipping": 1.0,
+      "steps_per_print": 2000,
+      "train_batch_size": 1024, # Batch size
+      "train_micro_batch_size_per_gpu": 256, # Batch size per GPU (4 GPUs)
+      "wall_clock_breakdown": False
+  }
 ```
 
 - **Mixed Precision**: Both `fp16` and `bf16` are enabled for automatic mixed-precision training, which accelerates training while reducing memory usage.
