@@ -249,7 +249,11 @@ class MambaLMHeadModel(PreTrainedModel, GenerationMixin):
         model.load_state_dict(load_state_dict_hf(pretrained_model_name, device=device, dtype=dtype))
         return model
 
+<<<<<<< Updated upstream
 train_dataset = load_dataset("/scratch/vetgpt/data/processed_data/**/**/*.txt")
+=======
+train_dataset = load_dataset("/scratch/vetgpt/data/cleaned_combine_s2orc_redpajama_wikipedia/**/**/*.jsonl")
+>>>>>>> Stashed changes
 
     
 config = MambaConfig(
