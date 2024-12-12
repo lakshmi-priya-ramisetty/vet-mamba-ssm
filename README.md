@@ -21,6 +21,8 @@ Mamba is a state space model architecture optimized for tasks like language mode
 - **Mamba Block**: The core module wraps the selective SSM, allowing easy configuration and optimization for custom tasks.
 - **Checkpointing and Logging**: Save training progress and monitor model performance.
 
+## Demo
+You can try our VetMamba model [here](https://c559-129-98-40-240.ngrok-free.app/).
 
 ## Requirements
 - **Operating System**: Linux
@@ -184,6 +186,3 @@ deepspeed = {
 - **Gradient Accumulation and Clipping**: Allows control over gradient accumulation and clipping, which is essential for stability during training.
 
 This DeepSpeed configuration is tailored to optimize the training process for large datasets and complex models like the Mamba SSM, ensuring efficient memory usage, faster convergence, and improved model performance.
-
-### 5. Demo
-You can try our VetMamba [here](https://c559-129-98-40-240.ngrok-free.app/).
