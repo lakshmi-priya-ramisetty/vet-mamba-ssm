@@ -184,3 +184,6 @@ deepspeed = {
 - **Gradient Accumulation and Clipping**: Allows control over gradient accumulation and clipping, which is essential for stability during training.
 
 This DeepSpeed configuration is tailored to optimize the training process for large datasets and complex models like the Mamba SSM, ensuring efficient memory usage, faster convergence, and improved model performance.
+
+### 5. Demo
+You can try our VetMamba [here](https://c559-129-98-40-240.ngrok-free.app/).
